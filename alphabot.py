@@ -98,9 +98,28 @@ class DeltaAPI:
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})
+        self._time_offset = 0
+        self._sync_time()
+
+    def _sync_time(self):
+        """Sync local clock with Delta server time to avoid 401 signature errors."""
+        try:
+            r = self.session.get(BASE_URL() + "/v2/products", timeout=10)
+            server_date = r.headers.get("Date")
+            if server_date:
+                from email.utils import parsedate_to_datetime
+                server_ts = parsedate_to_datetime(server_date).timestamp()
+                self._time_offset = server_ts - time.time()
+                log.info(f"Clock synced with Delta server. Offset: {self._time_offset:.2f}s")
+        except Exception as e:
+            log.warning(f"Could not sync time with Delta server: {e}")
+            self._time_offset = 0
+
+    def _now_ts(self):
+        return time.time() + self._time_offset
 
     def _sign(self, method, path, query="", body=""):
-        ts  = str(int(time.time()))
+        ts  = str(int(self._now_ts()))
         msg = method + ts + path
         if query: msg += "?" + query
         if body:  msg += body
@@ -117,6 +136,10 @@ class DeltaAPI:
         url   = BASE_URL() + path + ("?" + query if query else "")
         try:
             r = self.session.get(url, headers=self._headers("GET", path, query), timeout=10)
+            if r.status_code == 401:
+                log.warning("401 received — re-syncing clock and retrying once...")
+                self._sync_time()
+                r = self.session.get(url, headers=self._headers("GET", path, query), timeout=10)
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -128,6 +151,10 @@ class DeltaAPI:
         url  = BASE_URL() + path
         try:
             r = self.session.post(url, headers=self._headers("POST", path, "", body), data=body, timeout=10)
+            if r.status_code == 401:
+                log.warning("401 received — re-syncing clock and retrying once...")
+                self._sync_time()
+                r = self.session.post(url, headers=self._headers("POST", path, "", body), data=body, timeout=10)
             r.raise_for_status()
             return r.json()
         except Exception as e:
