@@ -1,7 +1,7 @@
-flask==3.0.0
+flask==3.0.3
 flask-socketio==5.3.6
 requests==2.31.0
-pandas==2.1.4
-numpy==1.26.2
+pandas==2.0.3
+numpy==1.26.4
 eventlet==0.35.1
 gunicorn==21.2.0
