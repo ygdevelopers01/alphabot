@@ -104,7 +104,9 @@ class DeltaAPI:
     def _sync_time(self):
         """Sync local clock with Delta server time to avoid 401 signature errors."""
         try:
-            r = self.session.get(BASE_URL() + "/v2/products", timeout=10)
+            r = self.session.get(BASE_URL() + "/v2/products",
+                                  headers={"User-Agent": "python-alphabot-3.11", "Accept": "application/json"},
+                                  timeout=10)
             server_date = r.headers.get("Date")
             if server_date:
                 from email.utils import parsedate_to_datetime
@@ -128,18 +130,35 @@ class DeltaAPI:
 
     def _headers(self, method, path, query="", body=""):
         sig, ts = self._sign(method, path, query, body)
-        return {"api-key": DELTA_API_KEY, "timestamp": ts,
-                "signature": sig, "Content-Type": "application/json"}
+        return {
+            "api-key":     DELTA_API_KEY,
+            "timestamp":   ts,
+            "signature":   sig,
+            "Content-Type":"application/json",
+            "User-Agent":  "python-alphabot-3.11",   # REQUIRED by Delta — avoids 4XX rejection
+            "Accept":      "application/json",
+        }
+
+    def _log_error_body(self, r):
+        """Log Delta's exact error code/context so we see the real reason (e.g. correct IP to whitelist)."""
+        try:
+            body = r.json()
+            log.error(f"Delta error body: {json.dumps(body)}")
+        except Exception:
+            log.error(f"Delta raw error text: {r.text[:300]}")
 
     def _get(self, path, params=None):
         query = urlencode(params) if params else ""
         url   = BASE_URL() + path + ("?" + query if query else "")
         try:
             r = self.session.get(url, headers=self._headers("GET", path, query), timeout=10)
-            if r.status_code == 401:
-                log.warning("401 received — re-syncing clock and retrying once...")
+            if r.status_code in (401, 403):
+                self._log_error_body(r)
+                log.warning(f"{r.status_code} received — re-syncing clock and retrying once...")
                 self._sync_time()
                 r = self.session.get(url, headers=self._headers("GET", path, query), timeout=10)
+                if r.status_code in (401, 403):
+                    self._log_error_body(r)
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -151,10 +170,13 @@ class DeltaAPI:
         url  = BASE_URL() + path
         try:
             r = self.session.post(url, headers=self._headers("POST", path, "", body), data=body, timeout=10)
-            if r.status_code == 401:
-                log.warning("401 received — re-syncing clock and retrying once...")
+            if r.status_code in (401, 403):
+                self._log_error_body(r)
+                log.warning(f"{r.status_code} received — re-syncing clock and retrying once...")
                 self._sync_time()
                 r = self.session.post(url, headers=self._headers("POST", path, "", body), data=body, timeout=10)
+                if r.status_code in (401, 403):
+                    self._log_error_body(r)
             r.raise_for_status()
             return r.json()
         except Exception as e:
