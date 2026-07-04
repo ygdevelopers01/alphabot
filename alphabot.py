@@ -63,9 +63,8 @@ MIN_CANDLES           = 50
 LOG_FILE              = "alphabot.log"
 TRADE_LOG_FILE        = "trades.csv"
 
-DELTA_BASE_URL_DEMO = "https://api.india.delta.exchange"   # demo.delta.exchange uses this API
-DELTA_BASE_URL_LIVE = "https://api.india.delta.exchange"   # same for live India account
-DELTA_BASE_URL_TESTNET = "https://cdn-ind.testnet.deltaex.org"  # old testnet (kept as backup)
+DELTA_BASE_URL_DEMO = "https://cdn-ind.testnet.deltaex.org"  # CORRECT for demo.delta.exchange keys
+DELTA_BASE_URL_LIVE = "https://api.india.delta.exchange"      # For real india.delta.exchange account
 
 TF_TO_RESOLUTION = {
     "15m":15, "30m":30, "1h":60, "2h":120,
@@ -102,55 +101,33 @@ class DeltaAPI:
         self._time_offset = 0
         self._sync_time()
 
-    def _get_server_time(self):
-        """Get Delta Exchange server time directly from their time endpoint."""
+    def _sync_time(self):
+        """Get exact server time from Delta testnet."""
         try:
+            # Try /v2/time first (most accurate)
             r = requests.get(
                 BASE_URL() + "/v2/time",
                 headers={"User-Agent":"python-alphabot","Accept":"application/json"},
                 timeout=5
             )
-            data = r.json()
-            if data.get("success"):
-                return int(data["result"]["server_time"])
-        except Exception:
-            pass
-        # Fallback — use local time
-        return int(time.time())
-
-    def _sync_time(self):
-        """Sync local clock with Delta server time."""
-        try:
-            r = self.session.get(
-                BASE_URL() + "/v2/time",
-                headers={"User-Agent":"python-alphabot","Accept":"application/json"},
-                timeout=5
-            )
-            data = r.json()
-            if data.get("success"):
-                server_ts = int(data["result"]["server_time"])
-                self._time_offset = server_ts - int(time.time())
-                log.info(f"Clock synced with Delta server time endpoint. Offset: {self._time_offset}s")
-                return
-        except Exception:
-            pass
-        # Fallback — use Date header
-        try:
-            r = self.session.get(
-                BASE_URL() + "/v2/products",
-                headers={"User-Agent":"python-alphabot","Accept":"application/json"},
-                timeout=5
-            )
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("result") and data["result"].get("server_time"):
+                    server_ts = int(data["result"]["server_time"])
+                    self._time_offset = server_ts - int(time.time())
+                    log.info(f"Time synced via /v2/time. Server:{server_ts} Local:{int(time.time())} Offset:{self._time_offset}s")
+                    return
+            # Fallback — use response Date header
             from email.utils import parsedate_to_datetime
             server_ts = int(parsedate_to_datetime(r.headers.get("Date","")).timestamp())
             self._time_offset = server_ts - int(time.time())
-            log.info(f"Clock synced via Date header. Offset: {self._time_offset}s")
+            log.info(f"Time synced via Date header. Offset:{self._time_offset}s")
         except Exception as e:
-            log.warning(f"Time sync failed: {e}")
+            log.warning(f"Time sync failed: {e} — using local time")
             self._time_offset = 0
 
     def _now_ts(self):
-        """Get current timestamp corrected for server time difference."""
+        """Current timestamp corrected with server offset."""
         return int(time.time()) + self._time_offset
 
     def _make_headers(self, method, path, query="", body=""):
