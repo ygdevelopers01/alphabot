@@ -102,43 +102,79 @@ class DeltaAPI:
         self._time_offset = 0
         self._sync_time()
 
-    def _sync_time(self):
-        """Sync local clock with Delta server time to avoid 401 signature errors."""
+    def _get_server_time(self):
+        """Get Delta Exchange server time directly from their time endpoint."""
         try:
-            r = self.session.get(BASE_URL() + "/v2/products",
-                                  headers={"User-Agent": "python-alphabot-3.11", "Accept": "application/json"},
-                                  timeout=10)
-            server_date = r.headers.get("Date")
-            if server_date:
-                from email.utils import parsedate_to_datetime
-                server_ts = parsedate_to_datetime(server_date).timestamp()
-                self._time_offset = server_ts - time.time()
-                log.info(f"Clock synced with Delta server. Offset: {self._time_offset:.2f}s")
+            r = requests.get(
+                BASE_URL() + "/v2/time",
+                headers={"User-Agent":"python-alphabot","Accept":"application/json"},
+                timeout=5
+            )
+            data = r.json()
+            if data.get("success"):
+                return int(data["result"]["server_time"])
+        except Exception:
+            pass
+        # Fallback — use local time
+        return int(time.time())
+
+    def _sync_time(self):
+        """Sync local clock with Delta server time."""
+        try:
+            r = self.session.get(
+                BASE_URL() + "/v2/time",
+                headers={"User-Agent":"python-alphabot","Accept":"application/json"},
+                timeout=5
+            )
+            data = r.json()
+            if data.get("success"):
+                server_ts = int(data["result"]["server_time"])
+                self._time_offset = server_ts - int(time.time())
+                log.info(f"Clock synced with Delta server time endpoint. Offset: {self._time_offset}s")
+                return
+        except Exception:
+            pass
+        # Fallback — use Date header
+        try:
+            r = self.session.get(
+                BASE_URL() + "/v2/products",
+                headers={"User-Agent":"python-alphabot","Accept":"application/json"},
+                timeout=5
+            )
+            from email.utils import parsedate_to_datetime
+            server_ts = int(parsedate_to_datetime(r.headers.get("Date","")).timestamp())
+            self._time_offset = server_ts - int(time.time())
+            log.info(f"Clock synced via Date header. Offset: {self._time_offset}s")
         except Exception as e:
-            log.warning(f"Could not sync time with Delta server: {e}")
+            log.warning(f"Time sync failed: {e}")
             self._time_offset = 0
 
     def _now_ts(self):
-        return time.time() + self._time_offset
+        """Get current timestamp corrected for server time difference."""
+        return int(time.time()) + self._time_offset
 
-    def _sign(self, method, path, query="", body=""):
-        ts  = str(int(self._now_ts()))
+    def _make_headers(self, method, path, query="", body=""):
+        """Generate fresh signature at the LAST possible moment before sending."""
+        ts  = str(self._now_ts())   # timestamp generated HERE — right before sending
         msg = method + ts + path
         if query: msg += "?" + query
         if body:  msg += body
-        sig = hmac.new(DELTA_API_SECRET.encode(), msg.encode(), hashlib.sha256).hexdigest()
-        return sig, ts
+        sig = hmac.new(
+            DELTA_API_SECRET.encode(),
+            msg.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        return {
+            "api-key":      DELTA_API_KEY,
+            "timestamp":    ts,
+            "signature":    sig,
+            "Content-Type": "application/json",
+            "User-Agent":   "python-alphabot",
+            "Accept":       "application/json",
+        }
 
     def _headers(self, method, path, query="", body=""):
-        sig, ts = self._sign(method, path, query, body)
-        return {
-            "api-key":     DELTA_API_KEY,
-            "timestamp":   ts,
-            "signature":   sig,
-            "Content-Type":"application/json",
-            "User-Agent":  "python-alphabot-3.11",   # REQUIRED by Delta — avoids 4XX rejection
-            "Accept":      "application/json",
-        }
+        return self._make_headers(method, path, query, body)
 
     def _log_error_body(self, r):
         """Log Delta's exact error code/context so we see the real reason (e.g. correct IP to whitelist)."""
@@ -151,38 +187,46 @@ class DeltaAPI:
     def _get(self, path, params=None):
         query = urlencode(params) if params else ""
         url   = BASE_URL() + path + ("?" + query if query else "")
-        try:
-            r = self.session.get(url, headers=self._headers("GET", path, query), timeout=10)
-            if r.status_code in (401, 403):
-                self._log_error_body(r)
-                log.warning(f"{r.status_code} received — re-syncing clock and retrying once...")
-                self._sync_time()
-                r = self.session.get(url, headers=self._headers("GET", path, query), timeout=10)
+        for attempt in range(3):   # try up to 3 times with fresh timestamp each time
+            try:
+                hdrs = self._make_headers("GET", path, query)  # FRESH timestamp every attempt
+                r    = self.session.get(url, headers=hdrs, timeout=10)
                 if r.status_code in (401, 403):
                     self._log_error_body(r)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            log.error(f"GET {path}: {e}")
-            return None
+                    if attempt < 2:
+                        log.warning(f"Attempt {attempt+1} failed — re-syncing and retrying...")
+                        self._sync_time()
+                        time.sleep(1)
+                        continue
+                r.raise_for_status()
+                return r.json()
+            except Exception as e:
+                if attempt == 2:
+                    log.error(f"GET {path} failed after 3 attempts: {e}")
+                time.sleep(1)
+        return None
 
     def _post(self, path, data=None):
         body = json.dumps(data) if data else ""
         url  = BASE_URL() + path
-        try:
-            r = self.session.post(url, headers=self._headers("POST", path, "", body), data=body, timeout=10)
-            if r.status_code in (401, 403):
-                self._log_error_body(r)
-                log.warning(f"{r.status_code} received — re-syncing clock and retrying once...")
-                self._sync_time()
-                r = self.session.post(url, headers=self._headers("POST", path, "", body), data=body, timeout=10)
+        for attempt in range(3):
+            try:
+                hdrs = self._make_headers("POST", path, "", body)  # FRESH timestamp every attempt
+                r    = self.session.post(url, headers=hdrs, data=body, timeout=10)
                 if r.status_code in (401, 403):
                     self._log_error_body(r)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            log.error(f"POST {path}: {e}")
-            return None
+                    if attempt < 2:
+                        log.warning(f"Attempt {attempt+1} failed — re-syncing and retrying...")
+                        self._sync_time()
+                        time.sleep(1)
+                        continue
+                r.raise_for_status()
+                return r.json()
+            except Exception as e:
+                if attempt == 2:
+                    log.error(f"POST {path} failed after 3 attempts: {e}")
+                time.sleep(1)
+        return None
 
     def _delete(self, path, data=None):
         body = json.dumps(data) if data else ""
