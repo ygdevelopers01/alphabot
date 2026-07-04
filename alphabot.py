@@ -63,8 +63,9 @@ MIN_CANDLES           = 50
 LOG_FILE              = "alphabot.log"
 TRADE_LOG_FILE        = "trades.csv"
 
-DELTA_BASE_URL_DEMO = "https://cdn-ind.testnet.deltaex.org"
-DELTA_BASE_URL_LIVE = "https://api.delta.exchange"
+DELTA_BASE_URL_DEMO = "https://api.india.delta.exchange"   # demo.delta.exchange uses this API
+DELTA_BASE_URL_LIVE = "https://api.india.delta.exchange"   # same for live India account
+DELTA_BASE_URL_TESTNET = "https://cdn-ind.testnet.deltaex.org"  # old testnet (kept as backup)
 
 TF_TO_RESOLUTION = {
     "15m":15, "30m":30, "1h":60, "2h":120,
