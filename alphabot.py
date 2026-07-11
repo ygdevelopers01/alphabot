@@ -42,9 +42,9 @@ DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD") or "@ALPHA01"
 DASHBOARD_USERS    = {DASHBOARD_USER: DASHBOARD_PASSWORD}
 
 TRADING_PAIRS = {
-    "BTCUSDT": {"symbol":"BTCUSDT", "lot_size":5,  "tick_size":0.5,  "leverage":10, "category":"linear"},
-    "ETHUSDT": {"symbol":"ETHUSDT", "lot_size":8,  "tick_size":0.05, "leverage":10, "category":"linear"},
-    "SOLUSDT": {"symbol":"SOLUSDT", "lot_size":3,  "tick_size":0.01, "leverage":10, "category":"linear"},
+    "BTCUSDT": {"symbol":"BTCUSDT", "lot_size":"0.01",  "tick_size":0.5,  "leverage":10, "category":"linear"},
+    "ETHUSDT": {"symbol":"ETHUSDT", "lot_size":"0.1",   "tick_size":0.05, "leverage":10, "category":"linear"},
+    "SOLUSDT": {"symbol":"SOLUSDT", "lot_size":"1",     "tick_size":0.01, "leverage":10, "category":"linear"},
 }
 
 RISK_REWARD_RATIO     = 2.5
@@ -577,22 +577,28 @@ class AlphaBot:
         log.info("Testing Bybit API connection...")
         ok, msg = self.api.test_connection()
         if not ok:
-            log.error(f"API FAILED: {msg}")
-            self.tg.error(f"Bot failed to connect to Bybit: {msg}")
-            return
+            log.error(f"API FAILED: {msg} — retrying in 30 seconds...")
+            self.tg.error(f"Bot failed to connect: {msg} — retrying...")
+            time.sleep(30)
+            return self.start()  # Retry connection automatically
         log.info(f"Bybit API Connected! Mode: {TRADING_MODE.upper()}")
         for sym, cfg in TRADING_PAIRS.items():
-            self.api.set_leverage(sym, cfg["leverage"])
-            log.info(f"Leverage set: {sym} = {cfg['leverage']}x")
+            try:
+                self.api.set_leverage(sym, cfg["leverage"])
+                log.info(f"Leverage set: {sym} = {cfg['leverage']}x")
+            except Exception as e:
+                log.warning(f"Leverage set failed for {sym}: {e} — continuing...")
         self.running = True
         self.state.bot_status = "RUNNING"
         self.tg.started()
         log.info(f"Bot RUNNING | Mode:{TRADING_MODE.upper()} | Interval:{SCAN_INTERVAL_SECONDS}s")
         while self.running:
-            try: self._cycle()
+            try:
+                self._cycle()
             except Exception as e:
                 log.error(f"Cycle error: {e}", exc_info=True)
                 self.tg.error(str(e))
+                time.sleep(10)  # Wait 10 seconds then continue — NEVER STOP!
             time.sleep(SCAN_INTERVAL_SECONDS)
 
     def _shutdown(self, *a):
@@ -633,7 +639,9 @@ class AlphaBot:
         log.info(f"SIGNAL: {symbol} {chosen['signal']} | Entry:{entry:.2f} SL:{sltp['stop_loss']:.2f} TP:{sltp['take_profit']:.2f}")
         order = self.api.place_order(symbol, side, cfg["lot_size"], sltp["stop_loss"], sltp["take_profit"])
         if not order:
-            log.error(f"Order FAILED: {symbol}"); self.tg.error(f"Order failed: {symbol}"); return
+            log.error(f"Order FAILED: {symbol} — bot continues scanning...")
+            self.tg.error(f"Order failed: {symbol} — continuing...")
+            return  # Just skip this trade, keep bot running
         trade = {
             "id":str(uuid.uuid4())[:8].upper(),"symbol":symbol,
             "direction":chosen["signal"],"trade_type":chosen.get("trade_type","INTRADAY"),
