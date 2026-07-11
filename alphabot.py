@@ -35,7 +35,7 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID")   or "YOUR_TELEGRAM_CHAT
 TELEGRAM_ENABLED   = True
 
 DASHBOARD_HOST     = "0.0.0.0"
-DASHBOARD_PORT     = int(os.environ.get("PORT") or os.environ.get("RAILWAY_PORT") or 8080)
+DASHBOARD_PORT     = int(os.environ.get("PORT") or 8080)
 DASHBOARD_SECRET   = os.environ.get("DASHBOARD_SECRET") or "alphabot_secret_2024"
 DASHBOARD_USER     = os.environ.get("DASHBOARD_USER")     or "@ALPHA"
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD") or "@ALPHA01"
@@ -894,4 +894,6 @@ if __name__=="__main__":
     bc_thread=threading.Thread(target=broadcast_loop,daemon=True)
     bc_thread.start()
     log.info(f"Dashboard → http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
-    socketio.run(app,host=DASHBOARD_HOST,port=DASHBOARD_PORT,debug=False,allow_unsafe_werkzeug=True)
+    log.info(f"PORT from environment: {os.environ.get('PORT','not set')}")
+    socketio.run(app,host=DASHBOARD_HOST,port=DASHBOARD_PORT,debug=False,
+                 use_reloader=False,log_output=False,allow_unsafe_werkzeug=True)
