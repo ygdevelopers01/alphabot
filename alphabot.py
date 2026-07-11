@@ -35,7 +35,7 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID")   or "YOUR_TELEGRAM_CHAT
 TELEGRAM_ENABLED   = True
 
 DASHBOARD_HOST     = "0.0.0.0"
-DASHBOARD_PORT     = int(os.environ.get("PORT") or 5000)
+DASHBOARD_PORT     = int(os.environ.get("PORT") or os.environ.get("RAILWAY_PORT") or 8080)
 DASHBOARD_SECRET   = os.environ.get("DASHBOARD_SECRET") or "alphabot_secret_2024"
 DASHBOARD_USER     = os.environ.get("DASHBOARD_USER")     or "@ALPHA"
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD") or "@ALPHA01"
