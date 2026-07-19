@@ -1,1 +1,1 @@
-web: python alphabot.py
+web: python alphabot_railway.py
