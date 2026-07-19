@@ -18,18 +18,20 @@ from flask_socketio import SocketIO, emit
 #   SETTINGS — EDIT THESE WITH YOUR KEYS
 # ================================================================
 
-BYBIT_API_KEY    ="DTitxnwMbnb4fKJImY"
-BYBIT_API_SECRET ="J5zba6CNiZ1nKJUwIBjoAGRWMjl8gK5isH3H"
-TRADING_MODE     = "demo"
+BYBIT_API_KEY    = os.environ.get("BYBIT_API_KEY") or "YOUR_BYBIT_API_KEY_HERE"
+BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET") or "YOUR_BYBIT_API_SECRET_HERE"
+TRADING_MODE     = os.environ.get("TRADING_MODE") or "demo"
 
-TELEGRAM_BOT_TOKEN ="8587909106:AAFKh-GwYhQVopLuR0PjlbRH7hoG7_VuX-g"
-TELEGRAM_CHAT_ID   ="7480010522"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "YOUR_TELEGRAM_BOT_TOKEN"
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID") or "YOUR_TELEGRAM_CHAT_ID"
 TELEGRAM_ENABLED   = True
 
 DASHBOARD_HOST   = "0.0.0.0"
-DASHBOARD_PORT   = 5000
-DASHBOARD_SECRET = "alphabot_secret_2024"
-DASHBOARD_USERS  = {"@ALPHA": "@ALPHA01"}
+DASHBOARD_PORT   = int(os.environ.get("PORT") or 5000)
+DASHBOARD_SECRET = os.environ.get("DASHBOARD_SECRET") or "alphabot_secret_2024"
+DASHBOARD_USER     = os.environ.get("DASHBOARD_USER") or "@ALPHA"
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD") or "@ALPHA01"
+DASHBOARD_USERS  = {DASHBOARD_USER: DASHBOARD_PASSWORD}
 
 BYBIT_DEMO_URL = "https://api-demo.bybit.com"
 BYBIT_LIVE_URL = "https://api.bybit.com"
